@@ -3,9 +3,10 @@ package x11
 import "core:sys/linux"
 import "core:fmt"
 import "core:strings"
+import "core:os"
 
 socket_x11: linux.Fd
-builder: strings.Builder
+buffer: [dynamic]u8
 
 Cabecalho_Requisicao :: bit_field u32 {
     operacao: u8  | 8,
@@ -44,11 +45,7 @@ Evento :: bit_field u32{
 }
 
 conectar :: proc(allocator := context.allocator) {
-    builder, erro_builder := strings.builder_make_len_cap(0, 1024)
-
-    if erro_builder != .None {
-        panic("Deu ruim ao alocar o construtor")
-    }
+    buffer := make([dynamic]u8, 4096)
 
     descritor_socket, erro_socket := linux.socket(
         .UNIX,
@@ -93,9 +90,16 @@ conectar :: proc(allocator := context.allocator) {
         _: Card16,
     }
 
+    caminho_cookie_magico := os.get_env("$XAUTHORITY")
+    defer delete(caminho_cookie_magico)
+    cookie_magico, _ := os.read_entire_file(caminho_cookie_magico)
+    defer delete(cookie_magico)
+
     req := Requisicao_Inicializar_Conexao {
-        versao_maior = 6,
-        versao_menor = 8,
+        versao_maior = 11,
+        versao_menor = 0,
+        tamanho_nome_protocolo_autorizacao = cast(u16)len("MIT-MAGIC-COOKIE-1"),
+        tamanho_dado_protocolo_autorizacao = cast(u16)len(cookie_magico)
     }
 
     when ODIN_ENDIAN == .Big {
@@ -104,12 +108,78 @@ conectar :: proc(allocator := context.allocator) {
         req.endian = 0x6C
     }
 
-    bytes_req := (transmute([size_of(req)]u8)req)
+    bytes_req := strings.builder_make_none()
+    defer strings.builder_destroy(&bytes_req)
 
-    linux.write(socket_x11, bytes_req[:])
+
+    tmp := transmute([size_of(req)]u8)req
+    strings.write_bytes(&bytes_req, tmp[:])
+
+    strings.write_string(&bytes_req, "MIT-MAGIC-COOKIE-1")
+    strings.write_string(&bytes_req, "MIT-MAGIC-COOKIE-1")
+    strings.write_bytes(&bytes_req, cookie_magico)
+    strings.write_bytes(&bytes_req, cookie_magico)
+
+    bytes_escritos, erro_writer := linux.write(socket_x11, bytes_req.buf[:])
+    if erro_writer != .NONE {
+        panic("Não foi possível escrever bytes de inicialização")
+    }
+
+
+    Resposta_Inicializar_Conexao_Falha :: struct {
+        codigo_retorno: [1]u8,
+        tamanho_motivo: [1]u8,
+        versao_maior: [2]u8,
+        versao_menor: [2]u8,
+        tamanho_dados_adicionais: [2]u8,
+        dados_adicionais: []u8,
+
+    }
+
+    Resposta_Inicializar_Conexao :: struct #raw_union {
+        falha: Resposta_Inicializar_Conexao_Falha,
+    }
+
+    resposta: Resposta_Inicializar_Conexao
+
+
+
+    erro_leitura: linux.Errno
+    bytes_lidos: int
+
+    for bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.codigo_retorno[:]); erro_leitura == .EAGAIN; bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.codigo_retorno[:]) {
+        fmt.println("tentando novamente...")
+    }
+
+    if erro_leitura != .NONE {
+        panic("Não foi possível ler a resposta da tentativa de conexão");
+    }
+
+
+    bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.tamanho_motivo[:])
+
+
+    bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.versao_maior[:])
+
+    bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.versao_menor[:])
+    bytes_lidos, erro_leitura = linux.read(socket_x11, resposta.falha.tamanho_dados_adicionais[:])
+    if (cast(int)(transmute(u16)resposta.falha.tamanho_dados_adicionais)) * 4 > len(buffer) {
+        resize(&buffer, (cast(int)(transmute(u16)resposta.falha.tamanho_dados_adicionais)) * 4)
+    }
+    bytes_lidos, erro_leitura = linux.read(socket_x11, buffer[:transmute(u16)resposta.falha.tamanho_dados_adicionais * 4])
+    resposta.falha.dados_adicionais = buffer[:transmute(u16)resposta.falha.tamanho_dados_adicionais * 4]
+    fmt.printfln("cookie_magico: %v", len(cookie_magico));
+    fmt.printfln("%v", transmute(u8)resposta.falha.codigo_retorno);
+    fmt.printfln("%v", transmute(u8)resposta.falha.tamanho_motivo);
+    fmt.printfln("%v", transmute(u16)resposta.falha.versao_maior);
+    fmt.printfln("%v", transmute(u16)resposta.falha.versao_menor);
+    fmt.printfln("%v", transmute(u16)resposta.falha.tamanho_dados_adicionais);
+    fmt.printfln("%s", cast(string)resposta.falha.dados_adicionais)
+
+
 }
 
 desconectar :: proc() {
-    strings.builder_destroy(&builder)
+    delete(buffer)
     linux.close(socket_x11)
 }
