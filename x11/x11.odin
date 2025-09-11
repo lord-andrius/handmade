@@ -1,5 +1,6 @@
 package x11
 
+import "core:bytes"
 import "core:sys/linux"
 import "core:fmt"
 import "core:strings"
@@ -123,13 +124,13 @@ Resposta_Inicializar_Conexao_Sucesso :: struct {
     ordem_byte_imagem: Card8, // 0 Little endian | 1 Big endian
     ordem_byte_bitmap: Card8, // 0 Little endian | 1 Big endian
     formato_unidade_bitmap_scanline: Card8, // quantos bytes é uma unidade do scanline
-    formato_preenchimento_bitmap_scanline: Card8, // quantos bytes de preenchimento entre scanlines
-    keycode_minimo: Card8,
-    keycode_maximo: Card8,
-    _nada2: Card32,
-    provedor: []u8,
-    formatos: []Formato,
-    telas: []Tela,
+        formato_preenchimento_bitmap_scanline: Card8, // quantos bytes de preenchimento entre scanlines
+            keycode_minimo: Card8,
+            keycode_maximo: Card8,
+            _nada2: Card32,
+            provedor: []u8,
+            formatos: []Formato,
+                telas: []Tela,
 }
 
 // As slices contidas na resposta devem ser deletadas pelo usuário dessa função
@@ -140,44 +141,56 @@ ler_resposta_inicializar_conexao_sucesso :: proc(resposta:^Resposta_Inicializar_
 
     // eu tirei a checagem de erro porque essa checagem já acontesce em ler_resposta_inicializar_conexao
     // NOTE: se der ruim colocar o código que lida com os erros
-    linux.read(Socket_X11, resposta.versao_maior.bytes[:])
-    linux.read(Socket_X11, resposta.versao_menor.bytes[:])
-    linux.read(Socket_X11, resposta.tamanho_dados_adicionais.bytes[:])
-    linux.read(Socket_X11, resposta.numero_lancamento.bytes[:])
-    linux.read(Socket_X11, resposta.id_base_recurso.bytes[:])
-    linux.read(Socket_X11, resposta.id_mascara_recurso.bytes[:])
-    linux.read(Socket_X11, resposta.tamanho_buffer_movimento.bytes[:])
-    linux.read(Socket_X11, resposta.tamanho_provedor.bytes[:])
-    linux.read(Socket_X11, resposta.tamanho_maximo_requisicao.bytes[:])
-    linux.read(Socket_X11, resposta.numero_de_telas_nas_raizes.bytes[:])
-    linux.read(Socket_X11, resposta.numero_formatos_pixmap.bytes[:])
-    linux.read(Socket_X11, resposta.ordem_byte_imagem.bytes[:])
-    linux.read(Socket_X11, resposta.ordem_byte_bitmap.bytes[:])
-    linux.read(Socket_X11, resposta.formato_unidade_bitmap_scanline.bytes[:])
-    linux.read(Socket_X11, resposta.formato_preenchimento_bitmap_scanline.bytes[:])
-    linux.read(Socket_X11, resposta.keycode_minimo.bytes[:])
-    linux.read(Socket_X11, resposta.keycode_maximo.bytes[:])
-    linux.read(Socket_X11, resposta._nada2.bytes[:])
+
+    // apartir daqui serão lidos os dados adicionais
+    bytes_lidos_de_dados_adicionais := 0
+
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.versao_maior.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.versao_menor.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.tamanho_dados_adicionais.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.numero_lancamento.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.id_base_recurso.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.id_mascara_recurso.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.tamanho_buffer_movimento.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.tamanho_provedor.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.tamanho_maximo_requisicao.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.numero_de_telas_nas_raizes.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.numero_formatos_pixmap.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.ordem_byte_imagem.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.ordem_byte_bitmap.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.formato_unidade_bitmap_scanline.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.formato_preenchimento_bitmap_scanline.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.keycode_minimo.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta.keycode_maximo.bytes[:]) or_else 0
+    bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, resposta._nada2.bytes[:]) or_else 0
 
 
-
-    resposta.provedor = ler_string(cast(uintptr)resposta.tamanho_provedor.valor)
+    bytes_lidos_ler_string := 0
+    resposta.provedor, bytes_lidos_ler_string = ler_string(cast(int)resposta.tamanho_provedor.valor)
+    bytes_lidos_de_dados_adicionais += bytes_lidos_ler_string
     // tem um preenchimento entre provedor e formatos
     //NOTE: PERFORMANCE isso é muito ruim alocar seria melhor?
     lixo: [1]u8
     for i in 0..<resposta.tamanho_provedor.valor {
-        linux.read(Socket_X11, lixo[:])
+        bytes_lidos_de_dados_adicionais += linux.read(Socket_X11, lixo[:]) or_else 0
     }
-    resposta.formatos = ler_lista_formatos(cast(uintptr)resposta.numero_formatos_pixmap.valor)
+
+    bytes_lidos_ler_formatos := 0
+    resposta.formatos, bytes_lidos_ler_formatos = ler_lista_formatos(cast(int)resposta.numero_formatos_pixmap.valor)
+    bytes_lidos_de_dados_adicionais += bytes_lidos_ler_formatos
+
     // essa fórmula eu peguei apartir da doc
-    tamanho_lista_telas := (cast(uintptr)resposta.tamanho_dados_adicionais.valor) * 2 - 8 - (cast(uintptr)resposta.numero_formatos_pixmap.valor) - (cast(uintptr)resposta.tamanho_provedor.valor * 2)
-    resposta.telas = ler_lista_telas(cast(uintptr)tamanho_lista_telas)
+    bytes_restantes := (cast(int)resposta.tamanho_dados_adicionais.valor * 4) - bytes_lidos_de_dados_adicionais
+
+
+    resposta.telas, _ = ler_lista_telas(bytes_restantes)
+
 }
 
-ler_string :: proc(tamanho: uintptr) -> []u8 {
+ler_string :: proc(tamanho: int) -> ([]u8, int) {
     str := make([]u8, tamanho)
-    linux.read(Socket_X11, str)
-    return str
+    bytes_lidos, _ := linux.read(Socket_X11, str)
+    return str, bytes_lidos
 }
 
 Formato :: struct {
@@ -188,24 +201,27 @@ Formato :: struct {
     _nada2: Card32,
 }
 
-ler_formato :: proc(formato: ^Formato) {
-    linux.read(Socket_X11, formato.profundidade.bytes[:])
-    linux.read(Socket_X11, formato.bits_por_pixel.bytes[:])
-    linux.read(Socket_X11, formato.preenchimento_scanline.bytes[:])
-    linux.read(Socket_X11, formato._nada1.bytes[:])
-    linux.read(Socket_X11, formato._nada2.bytes[:])
+ler_formato :: proc(formato: ^Formato) -> int{
+    bytes_lidos := 0
+    bytes_lidos += linux.read(Socket_X11, formato.profundidade.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, formato.bits_por_pixel.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, formato.preenchimento_scanline.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, formato._nada1.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, formato._nada2.bytes[:]) or_else 0
+    return bytes_lidos
 }
 
-ler_lista_formatos :: proc(tamanho: uintptr) -> []Formato {
+ler_lista_formatos :: proc(tamanho: int) -> ([]Formato, int) {
     //NOTE: PERFORMANCE deve ser possível ler tudo de uma vez
+    bytes_lidos := 0
     if tamanho == 0 {
-        return nil
+        return nil, 0
     }
     formatos := make([]Formato, tamanho)
-    for &formato in formatos {
-        ler_formato(&formato)
-    }
-    return formatos
+        for &formato in formatos {
+            bytes_lidos += ler_formato(&formato)
+        }
+        return formatos, bytes_lidos
 }
 
 Tela :: struct {
@@ -229,38 +245,46 @@ Tela :: struct {
     guardando: Card8,
     salva_por_traz: Bool,
     profundidade_raiz: Card8,
-    tamanho_profundidades_permitida: Card8,
-    profundidades_permitida: []Profundidade,
+    tamanho_profundidades_permitidass: Card8,
+    profundidades_permitidas: []Profundidade,
 
 }
 
-ler_tela :: proc(tela: ^Tela) {
-    linux.read(Socket_X11, tela.janela_raiz.bytes[:])
-    linux.read(Socket_X11, tela.mapa_de_cores.bytes[:])
-    linux.read(Socket_X11, tela.pixel_branco.bytes[:])
-    linux.read(Socket_X11, tela.pixel_preto.bytes[:])
-    linux.read(Socket_X11, tela.mascara_de_entrada_atual.bytes[:])
-    linux.read(Socket_X11, tela.largura_em_pixels.bytes[:])
-    linux.read(Socket_X11, tela.altura_em_pixels.bytes[:])
-    linux.read(Socket_X11, tela.largura_em_milimetros.bytes[:])
-    linux.read(Socket_X11, tela.altura_em_milimetros.bytes[:])
-    linux.read(Socket_X11, tela.minimo_mapas_instalados.bytes[:])
-    linux.read(Socket_X11, tela.maximo_mapas_instalados.bytes[:])
-    linux.read(Socket_X11, tela.id_visual.bytes[:])
-    linux.read(Socket_X11, tela.guardando.bytes[:])
-    linux.read(Socket_X11, tela.salva_por_traz.bytes[:])
-    linux.read(Socket_X11, tela.profundidade_raiz.bytes[:])
-    linux.read(Socket_X11, tela.tamanho_profundidades_permitida.bytes[:])
+ler_tela :: proc(tela: ^Tela) -> int {
+    bytes_lidos := 0
+    bytes_lidos += linux.read(Socket_X11, tela.janela_raiz.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.mapa_de_cores.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.pixel_branco.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.pixel_preto.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.mascara_de_entrada_atual.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.largura_em_pixels.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.altura_em_pixels.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.largura_em_milimetros.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.altura_em_milimetros.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.minimo_mapas_instalados.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.maximo_mapas_instalados.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.id_visual.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.guardando.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.salva_por_traz.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.profundidade_raiz.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tela.tamanho_profundidades_permitidass.bytes[:]) or_else 0
 
-    tela.profundidades_permitida = ler_lista_profundidade(cast(uintptr)tela.tamanho_profundidades_permitida.valor)
+    bytes_lidos_ler_lista_profundidade := 0
+    tela.profundidades_permitidas, bytes_lidos_ler_lista_profundidade = ler_lista_profundidade(cast(int)tela.tamanho_profundidades_permitidass.valor)
+
+    bytes_lidos += bytes_lidos_ler_lista_profundidade
+    return bytes_lidos
 }
 
-ler_lista_telas :: proc(tamanho: uintptr) -> []Tela {
-    telas := make([]Tela, tamanho)
-    for &tela in telas {
-        ler_tela(&tela)
+ler_lista_telas :: proc(bytes_para_ler: int) -> ([]Tela, int) {
+    bytes_lidos := 0
+    telas := make([dynamic]Tela)
+    for bytes_lidos < bytes_para_ler {
+        tela: Tela
+        bytes_lidos += ler_tela(&tela)
+        append(&telas, tela)
     }
-    return telas
+    return telas[:], bytes_lidos
 }
 
 Profundidade :: struct {
@@ -271,20 +295,26 @@ Profundidade :: struct {
     tipos_visuais: []TipoVisual,
 }
 
-ler_profundidade :: proc(profundidade: ^Profundidade) {
-    linux.read(Socket_X11, profundidade.profundidade.bytes[:])
-    linux.read(Socket_X11, profundidade._nada1.bytes[:])
-    linux.read(Socket_X11, profundidade.numero_tipo_visual.bytes[:])
-    linux.read(Socket_X11, profundidade._nada2.bytes[:])
-    profundidade.tipos_visuais = ler_lista_tipo_visual(cast(uintptr)profundidade.numero_tipo_visual.valor)
+ler_profundidade :: proc(profundidade: ^Profundidade) -> int {
+    bytes_lidos := 0
+    bytes_lidos += linux.read(Socket_X11, profundidade.profundidade.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, profundidade._nada1.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, profundidade.numero_tipo_visual.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, profundidade._nada2.bytes[:]) or_else 0
+
+    bytes_lidos_ler_lista_tipo_visual := 0
+    profundidade.tipos_visuais,bytes_lidos_ler_lista_tipo_visual = ler_lista_tipo_visual(cast(int)profundidade.numero_tipo_visual.valor)
+    bytes_lidos += bytes_lidos_ler_lista_tipo_visual
+    return bytes_lidos
 }
 
-ler_lista_profundidade :: proc(tamanho: uintptr) -> []Profundidade {
+ler_lista_profundidade :: proc(tamanho: int) -> ([]Profundidade, int) {
+    bytes_lidos := 0
     profundidades := make([]Profundidade, tamanho)
     for &profundidade in profundidades {
-        ler_profundidade(&profundidade)
+        bytes_lidos += ler_profundidade(&profundidade)
     }
-    return profundidades
+    return profundidades, bytes_lidos
 }
 
 Possibilidades_Classe_Tipo_Visual :: enum(u8) {
@@ -319,24 +349,28 @@ TipoVisual :: struct {
     _nada1: Card32,
 }
 
-ler_tipo_visual :: proc(tipo_visual: ^TipoVisual) {
-    linux.read(Socket_X11, tipo_visual.id_visual.bytes[:])
-    linux.read(Socket_X11, tipo_visual.classe.bytes[:])
-    linux.read(Socket_X11, tipo_visual.bits_por_valor_rgb.bytes[:])
-    linux.read(Socket_X11, tipo_visual.entrada_mapa_de_cores.bytes[:])
-    linux.read(Socket_X11, tipo_visual.mascara_vermelho.bytes[:])
-    linux.read(Socket_X11, tipo_visual.mascara_verde.bytes[:])
-    linux.read(Socket_X11, tipo_visual.mascara_azul.bytes[:])
-    linux.read(Socket_X11, tipo_visual._nada1.bytes[:])
+ler_tipo_visual :: proc(tipo_visual: ^TipoVisual) -> int {
+    bytes_lidos := 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.id_visual.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.classe.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.bits_por_valor_rgb.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.entrada_mapa_de_cores.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.mascara_vermelho.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.mascara_verde.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual.mascara_azul.bytes[:]) or_else 0
+    bytes_lidos += linux.read(Socket_X11, tipo_visual._nada1.bytes[:]) or_else 0
+
+    return bytes_lidos
 }
 
-ler_lista_tipo_visual :: proc(tamanho: uintptr) -> []TipoVisual{
+ler_lista_tipo_visual :: proc(tamanho: int) -> ([]TipoVisual, int){
     //NOTE: PERFORMANCE deve ser possível ler tudo de uma vez
+    bytes_lidos := 0
     tipos := make([]TipoVisual, tamanho)
     for &tipo in tipos {
-        ler_tipo_visual(&tipo)
+        bytes_lidos += ler_tipo_visual(&tipo)
     }
-    return tipos
+    return tipos, bytes_lidos
 }
 
 Window    :: Card32
@@ -381,13 +415,13 @@ ler_resposta_inicializar_conexao :: proc(resposta: ^Resposta_Inicializar_Conexao
 //esse é um contador usado para gerar ids
 _contador_id: u16 = 0
 
-gerar_id :: proc(conecao := Conexao) -> Card32 {
+gerar_id :: proc(conexao := Conexao) -> Card32 {
     if _contador_id == max(u16) {
         panic("Não tem como fazer id's novos")
     }
 
     novo_id: Card32 = Card32{
-        valor = cast(u32)_contador_id;
+        valor = cast(u32)_contador_id,
     }
     novo_id.valor &= conexao.id_mascara_recurso.valor
     novo_id.valor |= conexao.id_base_recurso.valor
