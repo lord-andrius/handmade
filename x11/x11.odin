@@ -108,8 +108,8 @@ Conexao: Resposta_Inicializar_Conexao_Sucesso
 Resposta_Inicializar_Conexao_Sucesso :: struct {
     codigo_retorno: Codigo_Retorno_Conexao,
     _nada1: Card8,
-    versao_maior: Card8,
-    versao_menor: Card8,
+    versao_maior: Card16,
+    versao_menor: Card16,
     tamanho_dados_adicionais: Card16, // em unidade de 4 bytes
     numero_lancamento: Card32,
     id_base_recurso: Card32, //usado para fazer os ids de outras coisas Window, Pixmap
@@ -119,14 +119,15 @@ Resposta_Inicializar_Conexao_Sucesso :: struct {
     tamanho_maximo_requisicao: Card16,
     numero_de_telas_nas_raizes: Card8,
     numero_formatos_pixmap: Card8,
+    // todas as imagens são recebidas e transmitidas nessa ordem
     ordem_byte_imagem: Card8, // 0 Little endian | 1 Big endian
     ordem_byte_bitmap: Card8, // 0 Little endian | 1 Big endian
-    formato_unidade_bitmap_scanline: Card8,
-    formato_preenchimento_bitmap_scanline: Card8,
+    formato_unidade_bitmap_scanline: Card8, // quantos bytes é uma unidade do scanline
+    formato_preenchimento_bitmap_scanline: Card8, // quantos bytes de preenchimento entre scanlines
     keycode_minimo: Card8,
     keycode_maximo: Card8,
     _nada2: Card32,
-    vendor: []u8,
+    provedor: []u8,
     formatos: []Formato,
     telas: []Tela,
 }
@@ -160,8 +161,8 @@ ler_resposta_inicializar_conexao_sucesso :: proc(resposta:^Resposta_Inicializar_
 
 
 
-    resposta.vendor = ler_string(cast(uintptr)resposta.tamanho_provedor.valor)
-    // tem um preenchimento entre vendor e formatos
+    resposta.provedor = ler_string(cast(uintptr)resposta.tamanho_provedor.valor)
+    // tem um preenchimento entre provedor e formatos
     //NOTE: PERFORMANCE isso é muito ruim alocar seria melhor?
     lixo: [1]u8
     for i in 0..<resposta.tamanho_provedor.valor {
@@ -377,7 +378,24 @@ ler_resposta_inicializar_conexao :: proc(resposta: ^Resposta_Inicializar_Conexao
 
 }
 
-conectar :: proc(allocator := context.allocator) {
+//esse é um contador usado para gerar ids
+_contador_id: u16 = 0
+
+gerar_id :: proc(conecao := Conexao) -> Card32 {
+    if _contador_id == max(u16) {
+        panic("Não tem como fazer id's novos")
+    }
+
+    novo_id: Card32 = Card32{
+        valor = cast(u32)_contador_id;
+    }
+    novo_id.valor &= conexao.id_mascara_recurso.valor
+    novo_id.valor |= conexao.id_base_recurso.valor
+    return novo_id
+}
+
+
+conectar :: proc(allocator := context.allocator) -> (ok:bool) {
     buffer := make([dynamic]u8, 4096)
 
     descritor_socket, erro_socket := linux.socket(
@@ -464,10 +482,21 @@ conectar :: proc(allocator := context.allocator) {
 
     resposta: Resposta_Inicializar_Conexao
 
-    ler_resposta_inicializar_conexao(&resposta)
+    if ler_resposta_inicializar_conexao(&resposta) {
+        // esse é o caso em que a conexão deu certo
+        Conexao = resposta.sucesso
+        return true
+    }
+
+    return false
 }
 
 desconectar :: proc() {
     delete(buffer)
     linux.close(Socket_X11)
+}
+
+
+criar_janela :: proc() {
+
 }
