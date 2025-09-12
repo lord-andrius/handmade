@@ -46,6 +46,11 @@ Card16 :: struct #raw_union {
     bytes: [2]u8,
 }
 
+Int16 :: struct #raw_union {
+    valor: i16,
+    bytes: [2]u8,
+}
+
 Card8  :: struct #raw_union {
     valor: u8,
     bytes: [1]u8,
@@ -124,13 +129,13 @@ Resposta_Inicializar_Conexao_Sucesso :: struct {
     ordem_byte_imagem: Card8, // 0 Little endian | 1 Big endian
     ordem_byte_bitmap: Card8, // 0 Little endian | 1 Big endian
     formato_unidade_bitmap_scanline: Card8, // quantos bytes é uma unidade do scanline
-        formato_preenchimento_bitmap_scanline: Card8, // quantos bytes de preenchimento entre scanlines
-            keycode_minimo: Card8,
-            keycode_maximo: Card8,
-            _nada2: Card32,
-            provedor: []u8,
-            formatos: []Formato,
-                telas: []Tela,
+    formato_preenchimento_bitmap_scanline: Card8, // quantos bytes de preenchimento entre scanlines
+    keycode_minimo: Card8,
+    keycode_maximo: Card8,
+    _nada2: Card32,
+    provedor: []u8,
+    formatos: []Formato,
+    telas: []Tela,
 }
 
 // As slices contidas na resposta devem ser deletadas pelo usuário dessa função
@@ -380,6 +385,26 @@ Font      :: Card32
 GContext  :: Card32
 Colormap  :: Card32
 Drawable  :: Card32
+
+Mascaras_VisualId :: enum(u32) {
+    Copiar_Do_Pai = 0,
+    Pixmap_Fundo = 0x1,
+    Pixel_Fundo = 0x1 << 1,
+    Pixmap_Borda = 0x1 << 2,
+    Pixel_Borda = 0x1 << 3,
+    gravidade_bit = 0x1 << 4,
+    gravidade_win = 0x1 << 5,
+    guardando_atraz = 0x1 << 6,
+    guardando_planos = 0x1 << 7,
+    guardando_pixel = 0x1 << 8,
+    sobrescrever_redirecionamento = 0x1 << 9,
+    salvar_sobre = 0x1 << 10,
+    mascara_evento = 0x1 << 11,
+    mascara_nao_propagar = 0x1 << 12,
+    mapa_de_cores = 0x1 << 13,
+    cursor = 0x1 << 14,
+}
+
 VisualId  :: Card32
 
 
@@ -531,6 +556,98 @@ desconectar :: proc() {
 }
 
 
-criar_janela :: proc() {
+Possibilidades_Codigo_Operacao :: enum(u8) {
+    Criar_Janela = 1,
+    Mapear_Janela = 7,
+}
+
+Codigo_Operacao :: struct #raw_union {
+    valor: Possibilidades_Codigo_Operacao,
+    bytes: [1]u8,
+}
+
+Possibilidades_Classe_Janela :: enum(u16) {
+    Copiar_Do_Pai  = 0,
+    Entrada_Saida  = 1,
+    Apenas_Entrada = 2,
+}
+
+Classe_Janela :: struct #raw_union {
+    valor: Possibilidades_Classe_Janela,
+    bytes: [2]u8,
+}
+
+
+Requisicao_Janela :: struct {
+    codigo_operacao: Codigo_Operacao,
+    profundidade: Card8,
+    tamanho_requisicao: Card16,
+    id_janela: Window,
+    id_janela_pai: Window,
+    posicao_x: Int16,
+    posicao_y: Int16,
+    largura: Card16,
+    altura: Card16,
+    classe: Classe_Janela,
+    visual: VisualId,
+    lista_de_valores: []u8,
+}
+
+criar_janela :: proc(requisicao: ^Requisicao_Janela) {
+    bytes_req := strings.builder_make_none()
+    defer strings.builder_destroy(&bytes_req)
+    strings.write_bytes(&bytes_req, requisicao.codigo_operacao.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.profundidade.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.tamanho_requisicao.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.id_janela.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.id_janela_pai.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.posicao_x.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.posicao_y.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.largura.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.altura.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.classe.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.visual.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.lista_de_valores)
+    bytes_escritos, erro := linux.write(Socket_X11, bytes_req.buf[:])
+    if erro != linux.Errno.NONE {
+        panic("Não foi possível escrever a requisicao criar_janela")
+    }
+    fmt.printfln("%v", bytes_escritos)
 
 }
+
+Requisicao_Mapear_Janela :: struct {
+    codigo_operacao: Codigo_Operacao,
+    nada: Card8,
+    tamanho_requisicao: Card16,
+    janela: Window,
+}
+
+mapear_janela :: proc(janela: Window) {
+    bytes_req := strings.builder_make_none()
+    defer strings.builder_destroy(&bytes_req)
+    requisicao := Requisicao_Mapear_Janela {
+        codigo_operacao = {
+            valor = Possibilidades_Codigo_Operacao.Mapear_Janela,
+        },
+        tamanho_requisicao = {
+            valor = 2
+        },
+        janela = janela,
+    }
+    strings.write_bytes(&bytes_req, requisicao.codigo_operacao.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.nada.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.tamanho_requisicao.bytes[:])
+    strings.write_bytes(&bytes_req, requisicao.janela.bytes[:])
+    bytes_escritos, erro := linux.write(Socket_X11, bytes_req.buf[:])
+    if erro != linux.Errno.NONE {
+        panic("Não foi possível escrever a requisicao criar_janela")
+    }
+    fmt.printfln("%v", bytes_escritos)
+}
+
+destruir_janela :: proc() {
+
+}
+
+
